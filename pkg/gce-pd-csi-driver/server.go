@@ -80,7 +80,12 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer, c
 		metricsInterceptor := metrics.MetricInterceptor{
 			MetricsManager: s.metricsManager,
 		}
-		interceptors = append(interceptors, metricsInterceptor.UnaryInterceptor())
+		switch {
+		case cs != nil:
+			interceptors = append(interceptors, metricsInterceptor.UnaryInterceptor())
+		case ns != nil:
+			interceptors = append(interceptors, metricsInterceptor.UnaryInterceptorNode())
+		}
 	}
 	if s.otelTracing {
 		interceptors = append(interceptors, otelgrpc.UnaryServerInterceptor())

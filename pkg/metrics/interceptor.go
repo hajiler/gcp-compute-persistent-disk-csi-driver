@@ -18,6 +18,18 @@ func (m *MetricInterceptor) unaryInterceptorInternal(ctx context.Context, req an
 	return result, err
 }
 
+func (m *MetricInterceptor) unaryInterceptorNode(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	requestMetadata := newRequestMetadata()
+	newCtx := context.WithValue(ctx, requestMetadataKey, requestMetadata)
+	result, err := handler(newCtx, req)
+	m.MetricsManager.RecordTestMetric(err)
+	return result, err
+}
+
 func (m *MetricInterceptor) UnaryInterceptor() grpc.UnaryServerInterceptor {
 	return m.unaryInterceptorInternal
+}
+
+func (m *MetricInterceptor) UnaryInterceptorNode() grpc.UnaryServerInterceptor {
+	return m.unaryInterceptorNode
 }

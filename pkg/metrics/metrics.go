@@ -39,6 +39,12 @@ const (
 )
 
 var (
+	gkeComponentVersion        *metrics.GaugeVec
+	pdcsiOperationErrorsMetric *metrics.CounterVec
+	testMetric                 *metrics.CounterVec
+)
+
+func initMetrics() {
 	// This metric is exposed only from the controller driver component when GKE_PDCSI_VERSION env variable is set.
 	gkeComponentVersion = metrics.NewGaugeVec(&metrics.GaugeOpts{
 		Name: "component_version",
@@ -53,7 +59,16 @@ var (
 			StabilityLevel: metrics.ALPHA,
 		},
 		[]string{"driver_name", "method_name", "grpc_status_code", "disk_type", "enable_confidential_storage", "enable_storage_pools"})
-)
+
+	testMetric = metrics.NewCounterVec(&metrics.CounterOpts{
+		Subsystem:      "pdcsi-node",
+		Name:           "test_metric",
+		Help:           "CSI node fsck metrics",
+		StabilityLevel: metrics.ALPHA,
+	},
+		[]string{"error_code"},
+	)
+}
 
 type MetricsManager struct {
 	registry metrics.KubeRegistry
@@ -78,6 +93,10 @@ func (mm *MetricsManager) RegisterPDCSIMetric() {
 	mm.registry.MustRegister(pdcsiOperationErrorsMetric)
 }
 
+func (mm *MetricsManager) RegisterTestMetric() {
+	mm.registry.MustRegister(testMetric)
+}
+
 func (mm *MetricsManager) recordComponentVersionMetric() error {
 	v := getEnvVar(envGKEPDCSIVersion)
 	if v == "" {
@@ -99,6 +118,11 @@ func (mm *MetricsManager) RecordOperationErrorMetrics(
 	errCode := errorCodeLabelValue(operationErr)
 	pdcsiOperationErrorsMetric.WithLabelValues(pdcsiDriverName, fullMethodName, errCode, diskType, enableConfidentialStorage, enableStoragePools).Inc()
 	klog.Infof("Recorded PDCSI operation error code: %q", errCode)
+}
+
+func (mm *MetricsManager) RecordTestMetric(err error) {
+	testMetric.WithLabelValues(errorCodeLabelValue(err))
+	klog.Infof("Recorded Test metric for error: %v", err)
 }
 
 func (mm *MetricsManager) EmitGKEComponentVersion() error {

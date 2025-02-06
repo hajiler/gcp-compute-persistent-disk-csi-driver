@@ -144,10 +144,12 @@ func handle() {
 	}
 
 	var metricsManager *metrics.MetricsManager = nil
-	if *runControllerService && *httpEndpoint != "" {
+	runServiceWithMetrics := *runControllerService || *runNodeService
+	if runServiceWithMetrics && *httpEndpoint != "" {
 		mm := metrics.NewMetricsManager()
 		mm.InitializeHttpHandler(*httpEndpoint, *metricsPath)
 		mm.RegisterPDCSIMetric()
+		mm.RegisterTestMetric()
 
 		if metrics.IsGKEComponentVersionAvailable() {
 			mm.EmitGKEComponentVersion()

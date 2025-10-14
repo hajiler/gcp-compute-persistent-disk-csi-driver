@@ -35,6 +35,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/mount-utils"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/gcp-compute-persistent-disk-csi-driver/pkg/common"
 	"sigs.k8s.io/gcp-compute-persistent-disk-csi-driver/pkg/constants"
@@ -1005,7 +1006,7 @@ func (ns *GCENodeServer) fetchGKETopologyLabels(ctx context.Context, nodeName st
 
 	topology := make(map[string]string)
 	for k, v := range node.GetLabels() {
-		if common.HasDiskTypeLabelKeyPrefix() {
+		if common.HasDiskTypeLabelKeyPrefix(k) {
 			klog.V(2).Infof("Including node topology label %q=%q", k, v)
 			topology[k] = v
 		}

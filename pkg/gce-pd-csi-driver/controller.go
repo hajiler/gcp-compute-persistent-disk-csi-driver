@@ -1397,7 +1397,7 @@ func (gceCS *GCEControllerServer) ValidateVolumeCapabilities(ctx context.Context
 	}
 
 	// Validate the disk parameters match the disk we GET
-	params, _, err := gceCS.parameterProcessor().ExtractAndDefaultParameters(req.GetParameters())
+	params, _, err := gceCS.parameterProcessor().ExtractAndDefaultParameters(req.GetParameters(), nil)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "failed to extract parameters: %v", err.Error())
 	}

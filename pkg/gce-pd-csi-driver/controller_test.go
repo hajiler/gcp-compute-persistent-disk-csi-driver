@@ -2385,12 +2385,13 @@ func TestMultiZoneVolumeCreationErrHandling(t *testing.T) {
 func TestCreateVolumeWithVolumeAttributeClassParameters(t *testing.T) {
 	// When volume attribute class specifies iops / throughput they should take precedence over storage class parameters
 	testCases := []struct {
-		name          string
-		req           *csi.CreateVolumeRequest
-		expIops       int64
-		expThroughput int64
-		wantErr       bool
-		expErrCode    codes.Code
+		name                 string
+		req                  *csi.CreateVolumeRequest
+		enableDynamicVolumes bool
+		expIops              int64
+		expThroughput        int64
+		wantErr              bool
+		expErrCode           codes.Code
 	}{
 		{
 			name: "VolumeAttributesClass parameters should take precedence over storage class parameters",
@@ -2459,12 +2460,73 @@ func TestCreateVolumeWithVolumeAttributeClassParameters(t *testing.T) {
 			wantErr:       true,
 			expErrCode:    codes.InvalidArgument,
 		},
+		{
+			name:                 "Success when dynamic volume selects valid disk type",
+			enableDynamicVolumes: true,
+			req: &csi.CreateVolumeRequest{
+				Name:               name,
+				CapacityRange:      stdCapRange,
+				VolumeCapabilities: stdVolCaps,
+				Parameters: map[string]string{
+					parameters.ParameterKeyType:                          parameters.DynamicVolumeType,
+					parameters.ParameterPDType:                           "pd-balanced",
+					parameters.ParameterHDType:                           "hyperdisk-balanced",
+					parameters.ParameterKeyProvisionedIOPSOnCreate:       "10000",
+					parameters.ParameterKeyProvisionedThroughputOnCreate: "500Mi",
+				},
+				AccessibilityRequirements: &csi.TopologyRequirement{
+					Preferred: []*csi.Topology{
+						{
+							Segments: map[string]string{
+								constants.TopologyKeyZone:                     zone,
+								common.DiskTypeLabelKey("hyperdisk-balanced"): "true",
+							},
+						},
+					},
+				},
+				MutableParameters: map[string]string{"iops": "20000", "throughput": "600Mi"},
+			},
+			expIops:       20000,
+			expThroughput: 600,
+			wantErr:       false,
+		},
+		{
+			name:                 "Success when dynamic volume selects valid disk type",
+			enableDynamicVolumes: true,
+			req: &csi.CreateVolumeRequest{
+				Name:               name,
+				CapacityRange:      stdCapRange,
+				VolumeCapabilities: stdVolCaps,
+				Parameters: map[string]string{
+					parameters.ParameterKeyType:                          parameters.DynamicVolumeType,
+					parameters.ParameterPDType:                           "pd-balanced",
+					parameters.ParameterHDType:                           "hyperdisk-balanced",
+					parameters.ParameterKeyProvisionedIOPSOnCreate:       "10000",
+					parameters.ParameterKeyProvisionedThroughputOnCreate: "500Mi",
+				},
+				AccessibilityRequirements: &csi.TopologyRequirement{
+					Preferred: []*csi.Topology{
+						{
+							Segments: map[string]string{
+								constants.TopologyKeyZone:              zone,
+								common.DiskTypeLabelKey("pd-balanced"): "true",
+							},
+						},
+					},
+				},
+				MutableParameters: map[string]string{"iops": "20000", "throughput": "600Mi"},
+			},
+			expIops:       0,
+			expThroughput: 0,
+			wantErr:       true,
+			expErrCode:    codes.InvalidArgument,
+		},
 	}
 
 	for _, tc := range testCases {
 		var d []*gce.CloudDisk
 		fcp, err := gce.CreateFakeCloudProvider(project, zone, d)
-		gceDriver := initGCEDriverWithCloudProvider(t, fcp, &GCEControllerServerArgs{})
+		gceDriver := initGCEDriverWithCloudProvider(t, fcp, &GCEControllerServerArgs{EnableDynamicVolumes: tc.enableDynamicVolumes})
 
 		if err != nil {
 			t.Fatalf("Failed to create fake cloud provider: %v", err)

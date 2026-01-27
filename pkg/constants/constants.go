@@ -67,6 +67,11 @@ const (
 	// Node label for attach limit override
 	NodeRestrictionLabelPrefix = "node-restriction.kubernetes.io/%s"
 	AttachLimitOverrideLabel   = "gke-volume-attach-limit-override"
+
+	// VolumePublishStatus is the key in volume publish context to indicate the status of the volume.
+	VolumePublishStatus = "volume-publish-status-gke-io"
+	ProvisioningStatus  = "provisioning"
+	AttachedStatus      = "attaching"
 )
 
 // doc https://cloud.google.com/compute/docs/general-purpose-machines

@@ -315,7 +315,7 @@ func handle() {
 				klog.Errorf("Data Cache enabled, but --node-name not passed")
 			}
 			if nsArgs.DataCacheEnabledNodePool {
-				if err := setupDataCache(ctx, *nodeName, nodeServer.GetNodeName()); err != nil {
+				if err := setupDataCache(ctx, *nodeName, nodeServer.MetadataService.GetName()); err != nil {
 					klog.Errorf("Data Cache setup failed: %v", err)
 				}
 				go driver.StartWatcher(ctx, *nodeName)

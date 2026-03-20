@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/GoogleCloudPlatform/k8s-cloud-provider/pkg/cloud/meta"
@@ -32,8 +33,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	kubeApiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/strings/slices"
@@ -50,6 +54,8 @@ type GCEControllerServer struct {
 	Driver        *GCEDriver
 	CloudProvider gce.GCECompute
 	Metrics       metrics.MetricsManager
+	KubeClient    kubernetes.Interface
+	LeakMutex     sync.RWMutex
 
 	volumeEntries     []*csi.ListVolumesResponse_Entry
 	volumeEntriesSeen map[string]int
@@ -136,6 +142,7 @@ type GCEControllerServerArgs struct {
 	EnableDiskTopology       bool
 	EnableDiskSizeValidation bool
 	EnableDynamicVolumes     bool
+	KubeClient               kubernetes.Interface
 }
 
 type MultiZoneVolumeHandleConfig struct {
@@ -312,6 +319,9 @@ func useVolumeCloning(req *csi.CreateVolumeRequest) bool {
 }
 
 func (gceCS *GCEControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
+	gceCS.LeakMutex.RLock()
+	defer gceCS.LeakMutex.RUnlock()
+
 	response, err := gceCS.createVolumeInternal(ctx, req)
 	if err != nil && req != nil {
 		klog.V(4).Infof("CreateVolume succeeded for volume %v", req.Name)
@@ -819,6 +829,33 @@ func (gceCS *GCEControllerServer) createSingleDisk(ctx context.Context, req *csi
 	}
 	if !ready {
 		return nil, status.Errorf(codes.Internal, "CreateVolume disk %v is not ready", volKey)
+	}
+
+	// Post-Success PVC Validation Block
+	if gceCS.KubeClient != nil {
+		pvcName := req.GetParameters()[parameters.ParameterKeyPVCName]
+		pvcNamespace := req.GetParameters()[parameters.ParameterKeyPVCNamespace]
+
+		if pvcName != "" && pvcNamespace != "" {
+			_, err := gceCS.KubeClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(ctx, pvcName, metav1.GetOptions{})
+			if err != nil {
+				if kubeApiErrors.IsNotFound(err) {
+					klog.Warningf("PVC %s/%s no longer exists, assuming leak. Deleting disk %v.", pvcNamespace, pvcName, volKey)
+					delErr := gceCS.CloudProvider.DeleteDisk(ctx, gceCS.CloudProvider.GetDefaultProject(), volKey)
+					if delErr != nil {
+						klog.Errorf("Failed to clean up leaked disk %v: %v", volKey, delErr)
+					}
+					return nil, status.Errorf(codes.Aborted, "PVC %s/%s missing, disk leak remediated", pvcNamespace, pvcName)
+				}
+				klog.Warningf("Failed to verify PVC %s/%s existence, continuing: %v", pvcNamespace, pvcName, err)
+			} else {
+				klog.V(4).Infof("PVC %s/%s verified, labeling disk %v", pvcNamespace, pvcName, volKey)
+				lblErr := gceCS.CloudProvider.SetDiskLabels(ctx, gceCS.CloudProvider.GetDefaultProject(), volKey, map[string]string{"pvc-exists": "true"})
+				if lblErr != nil {
+					klog.Warningf("Failed to set pvc-exists label on disk %v: %v", volKey, lblErr)
+				}
+			}
+		}
 	}
 
 	klog.V(4).Infof("CreateVolume succeeded for disk %v", volKey)

@@ -318,6 +318,35 @@ func (cloud *FakeCloudProvider) SetDiskAccessMode(ctx context.Context, project s
 	return nil
 }
 
+func (cloud *FakeCloudProvider) SetDiskLabels(ctx context.Context, project string, volKey *meta.Key, additionalLabels map[string]string) error {
+	disk, ok := cloud.disks[volKey.String()]
+	if !ok {
+		return fmt.Errorf("disk %v not found", volKey)
+	}
+
+	var newLabels map[string]string
+	if disk.disk != nil {
+		newLabels = disk.disk.Labels
+	} else if disk.betaDisk != nil {
+		newLabels = disk.betaDisk.Labels
+	}
+	if newLabels == nil {
+		newLabels = make(map[string]string)
+	}
+	for k, v := range additionalLabels {
+		newLabels[k] = v
+	}
+
+	if disk.disk != nil {
+		disk.disk.Labels = newLabels
+	}
+	if disk.betaDisk != nil {
+		disk.betaDisk.Labels = newLabels
+	}
+
+	return nil
+}
+
 func (cloud *FakeCloudProvider) GetDiskTypeURI(project string, volKey *meta.Key, diskType string) string {
 	switch volKey.Type() {
 	case meta.Zonal:

@@ -108,6 +108,7 @@ type GCECompute interface {
 	AttachDisk(ctx context.Context, project string, volKey *meta.Key, readWrite, diskType, instanceZone, instanceName string, forceAttach bool) error
 	DetachDisk(ctx context.Context, project, deviceName, instanceZone, instanceName string) error
 	SetDiskAccessMode(ctx context.Context, project string, volKey *meta.Key, accessMode string) error
+	SetDiskLabels(ctx context.Context, project string, volKey *meta.Key, additionalLabels map[string]string) error
 	ListCompatibleDiskTypeZones(ctx context.Context, project string, zones []string, diskType string) ([]string, error)
 	GetDiskSourceURI(project string, volKey *meta.Key) string
 	GetDiskTypeURI(project string, volKey *meta.Key, diskType string) string
@@ -979,6 +980,56 @@ func (cloud *CloudProvider) SetDiskAccessMode(ctx context.Context, project strin
 		return fmt.Errorf("volume key %v not zonal nor regional", volKey.Name)
 	}
 
+	return nil
+}
+
+func (cloud *CloudProvider) SetDiskLabels(ctx context.Context, project string, volKey *meta.Key, additionalLabels map[string]string) error {
+	disk, err := cloud.GetDisk(ctx, project, volKey)
+	if err != nil {
+		return fmt.Errorf("failed to get disk %v to set labels: %w", volKey, err)
+	}
+
+	newLabels := disk.GetLabels()
+	if newLabels == nil {
+		newLabels = make(map[string]string)
+	}
+	for k, v := range additionalLabels {
+		newLabels[k] = v
+	}
+
+	req := &computebeta.ZoneSetLabelsRequest{
+		LabelFingerprint: disk.GetLabelFingerprint(),
+		Labels:           newLabels,
+	}
+
+	switch volKey.Type() {
+	case meta.Zonal:
+		op, err := cloud.betaService.Disks.SetLabels(project, volKey.Zone, volKey.Name, req).Context(ctx).Do()
+		if err != nil {
+			return fmt.Errorf("failed to set labels for zonal disk %v: %w", volKey, err)
+		}
+		klog.V(5).Infof("SetDiskLabels operation %s for disk %s", op.Name, volKey.Name)
+		err = cloud.waitForZonalOp(ctx, project, op.Name, volKey.Zone)
+		if err != nil {
+			return fmt.Errorf("failed waiting for op for zonal disk label update for %v: %w", volKey, err)
+		}
+	case meta.Regional:
+		regionReq := &computebeta.RegionSetLabelsRequest{
+			LabelFingerprint: disk.GetLabelFingerprint(),
+			Labels:           newLabels,
+		}
+		op, err := cloud.betaService.RegionDisks.SetLabels(project, volKey.Region, volKey.Name, regionReq).Context(ctx).Do()
+		if err != nil {
+			return fmt.Errorf("failed to set labels for regional disk %v: %w", volKey, err)
+		}
+		klog.V(5).Infof("SetDiskLabels operation %s for regional disk %s", op.Name, volKey.Name)
+		err = cloud.waitForRegionalOp(ctx, project, op.Name, volKey.Region)
+		if err != nil {
+			return fmt.Errorf("failed waiting for op for regional disk label update for %v: %w", volKey, err)
+		}
+	default:
+		return fmt.Errorf("volume key %v not zonal nor regional", volKey.Name)
+	}
 	return nil
 }
 

@@ -182,6 +182,7 @@ func NewControllerServer(gceDriver *GCEDriver, cloudProvider gce.GCECompute, err
 		enableDynamicVolumes:        args.EnableDynamicVolumes,
 		EnableDiskTopology:          args.EnableDiskTopology,
 		EnableDiskSizeValidation:    args.EnableDiskSizeValidation,
+		KubeClient:                  args.KubeClient,
 	}
 }
 

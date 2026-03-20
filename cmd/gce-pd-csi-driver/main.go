@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/strings/slices"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -34,6 +35,7 @@ import (
 	"sigs.k8s.io/gcp-compute-persistent-disk-csi-driver/pkg/convert"
 	"sigs.k8s.io/gcp-compute-persistent-disk-csi-driver/pkg/deviceutils"
 	gce "sigs.k8s.io/gcp-compute-persistent-disk-csi-driver/pkg/gce-cloud-provider/compute"
+	"sigs.k8s.io/gcp-compute-persistent-disk-csi-driver/pkg/gce-cloud-provider/compute/tenancy"
 	metadataservice "sigs.k8s.io/gcp-compute-persistent-disk-csi-driver/pkg/gce-cloud-provider/metadata"
 	driver "sigs.k8s.io/gcp-compute-persistent-disk-csi-driver/pkg/gce-pd-csi-driver"
 	"sigs.k8s.io/gcp-compute-persistent-disk-csi-driver/pkg/linkcache"
@@ -287,7 +289,18 @@ func handle() {
 			EnableDynamicVolumes:     *dynamicVolumes,
 		}
 
+		var kubeClient kubernetes.Interface
+		config := tenancy.GetKubeConfig()
+		if config != nil {
+			kubeClient, err = kubernetes.NewForConfig(config)
+			if err != nil {
+				klog.Warningf("Failed to create kube wrapper: %v", err)
+			}
+		}
+		args.KubeClient = kubeClient
+
 		controllerServer = driver.NewControllerServer(gceDriver, cloudProvider, initialBackoffDuration, maxBackoffDuration, fallbackRequisiteZones, *enableStoragePoolsFlag, *enableDataCacheFlag, multiZoneVolumeHandleConfig, listVolumesConfig, provisionableDisksConfig, *enableHdHAFlag, args)
+		go controllerServer.CleanupRoutine(ctx)
 	} else if *cloudConfigFilePath != "" {
 		klog.Warningf("controller service is disabled but cloud config given - it has no effect")
 	}

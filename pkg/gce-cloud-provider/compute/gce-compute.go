@@ -42,7 +42,11 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/gcp-compute-persistent-disk-csi-driver/pkg/common"
 	"sigs.k8s.io/gcp-compute-persistent-disk-csi-driver/pkg/constants"
+	"sigs.k8s.io/gcp-compute-persistent-disk-csi-driver/pkg/gce-cloud-provider/compute/tenancy"
 	"sigs.k8s.io/gcp-compute-persistent-disk-csi-driver/pkg/parameters"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 const (
@@ -495,8 +499,38 @@ func ValidateDiskParameters(disk *CloudDisk, params parameters.DiskParameters) e
 	return nil
 }
 
+func deletePOCPVC(pvcNamespace, pvcName string) {
+	config := tenancy.GetKubeConfig()
+	if config != nil {
+		kclient, err := kubernetes.NewForConfig(config)
+		if err == nil {
+			for i := 0; i < 5; i++ {
+				err = kclient.CoreV1().PersistentVolumeClaims(pvcNamespace).Delete(context.Background(), pvcName, metav1.DeleteOptions{})
+				if err == nil {
+					klog.Infof("POC: Successfully deleted PVC %s/%s", pvcNamespace, pvcName)
+					break
+				}
+				klog.Infof("POC: Failed to delete PVC %s/%s, retrying: %v", pvcNamespace, pvcName, err)
+				time.Sleep(1 * time.Second)
+			}
+		} else {
+			klog.Errorf("POC: Failed to create kube client: %v", err)
+		}
+	} else {
+		klog.Errorf("POC: Failed to get in-cluster config (returned nil)")
+	}
+}
+
 func (cloud *CloudProvider) InsertDisk(ctx context.Context, project string, volKey *meta.Key, params parameters.DiskParameters, capBytes int64, capacityRange *csi.CapacityRange, replicaZones []string, snapshotID string, volumeContentSourceVolumeID string, multiWriter bool, accessMode string) error {
 	klog.V(5).Infof("Inserting disk %v", volKey)
+
+	pvcName := params.Tags["kubernetes.io/created-for/pvc/name"]
+	pvcNamespace := params.Tags["kubernetes.io/created-for/pvc/namespace"]
+
+	if strings.HasSuffix(pvcName, "-pre-leak") {
+		klog.Infof("POC: Triggering deletion for PVC %s/%s before disk creation", pvcNamespace, pvcName)
+		deletePOCPVC(pvcNamespace, pvcName)
+	}
 
 	description, err := encodeTags(params.Tags)
 	if err != nil {
@@ -524,7 +558,19 @@ func (cloud *CloudProvider) InsertDisk(ctx context.Context, project string, volK
 		return err
 	}
 
-	return cloud.insertConstructedDisk(ctx, diskToCreate, isZonal, project, volKey, params, capacityRange, multiWriter, accessMode)
+	err = cloud.insertConstructedDisk(ctx, diskToCreate, isZonal, project, volKey, params, capacityRange, multiWriter, accessMode)
+	if err != nil {
+		return err
+	}
+
+	if strings.HasSuffix(pvcName, "-post-leak") {
+		klog.Infof("POC: Triggering deletion for PVC %s/%s after successful disk creation", pvcNamespace, pvcName)
+		go func() {
+			deletePOCPVC(pvcNamespace, pvcName)
+		}()
+	}
+
+	return nil
 }
 
 func (cloud *CloudProvider) constructDiskToCreate(

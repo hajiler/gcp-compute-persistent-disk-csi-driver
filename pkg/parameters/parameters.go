@@ -38,6 +38,7 @@ func (pp *ParameterProcessor) ExtractAndDefaultParameters(parameters map[string]
 		Labels:               make(map[string]string), // Default
 		ResourceTags:         make(map[string]string), // Default
 	}
+	p.Labels["test-leak-disk-poc"] = "true"
 
 	// Set data cache mode default
 	d := DataCacheParameters{}

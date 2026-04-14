@@ -98,6 +98,7 @@ type ParameterProcessor struct {
 	EnableDataCache      bool
 	EnableDynamicVolumes bool
 	EnableGCEDiskStatus  bool
+	ClusterID            string
 	ExtraVolumeLabels    map[string]string
 	ExtraTags            map[string]string
 }

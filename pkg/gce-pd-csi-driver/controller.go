@@ -121,6 +121,9 @@ type GCEControllerServer struct {
 	// If set to true, the CSI Driver will update volume publish status labels on GCE disks.
 	enableGCEDiskStatus bool
 
+	// ClusterID stores the cluster identifier.
+	clusterID string
+
 	multiZoneVolumeHandleConfig MultiZoneVolumeHandleConfig
 
 	listVolumesConfig ListVolumesConfig
@@ -140,6 +143,7 @@ type GCEControllerServerArgs struct {
 	EnableDiskSizeValidation bool
 	EnableDynamicVolumes     bool
 	EnableGCEDiskStatus      bool
+	ClusterID                string
 }
 
 type MultiZoneVolumeHandleConfig struct {
@@ -1392,6 +1396,7 @@ func (gceCS *GCEControllerServer) parameterProcessor() *parameters.ParameterProc
 		ExtraTags:            gceCS.Driver.extraTags,
 		EnableDynamicVolumes: gceCS.enableDynamicVolumes,
 		EnableGCEDiskStatus:  gceCS.enableGCEDiskStatus,
+		ClusterID:            gceCS.clusterID,
 	}
 }
 

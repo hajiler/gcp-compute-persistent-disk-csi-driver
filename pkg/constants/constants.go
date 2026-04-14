@@ -81,6 +81,9 @@ const (
 	VolumePublishStatus = "volume-publish-status-gke-io"
 	ProvisioningStatus  = "provisioning"
 	AttachedStatus      = "attaching"
+
+	// ClusterIDLabel is the key in disk labels to indicate the cluster identifier of the disk.
+	ClusterIDLabel = "cluster-id-gke-io"
 )
 
 // doc https://cloud.google.com/compute/docs/general-purpose-machines

@@ -127,10 +127,6 @@ var (
 	version string
 )
 
-const (
-	driverName = "pd.csi.storage.gke.io"
-)
-
 func init() {
 	// klog verbosity guide for this package
 	// Use V(2) for one time config information
@@ -299,6 +295,12 @@ func handle() {
 		}
 
 		controllerServer = driver.NewControllerServer(gceDriver, cloudProvider, initialBackoffDuration, maxBackoffDuration, fallbackRequisiteZones, *enableStoragePoolsFlag, *enableDataCacheFlag, multiZoneVolumeHandleConfig, listVolumesConfig, provisionableDisksConfig, *enableHdHAFlag, args)
+		if err != nil {
+			klog.Fatalf("Failed to create controller server: %v", err)
+		}
+		if err := controllerServer.CleanupRoutine(ctx); err != nil {
+			klog.Errorf("Failed to run cleanup routine: %v", err)
+		}
 	} else if *cloudConfigFilePath != "" {
 		klog.Warningf("controller service is disabled but cloud config given - it has no effect")
 	}
@@ -322,7 +324,7 @@ func handle() {
 			klog.Fatalf("Failed to get node info from API server: %v", err.Error())
 		}
 
-		deviceCache, err := linkcache.NewDeviceCacheForNode(ctx, *diskCacheSyncPeriod, *nodeName, driverName, deviceUtils, metricsManager)
+		deviceCache, err := linkcache.NewDeviceCacheForNode(ctx, *diskCacheSyncPeriod, *nodeName, constants.DriverName, deviceUtils, metricsManager)
 		if err != nil {
 			klog.Warningf("Failed to create device cache: %v", err.Error())
 		} else {
@@ -360,7 +362,7 @@ func handle() {
 
 	}
 
-	err = gceDriver.SetupGCEDriver(driverName, version, extraVolumeLabels, extraTags, identityServer, controllerServer, nodeServer)
+	err = gceDriver.SetupGCEDriver(constants.DriverName, version, extraVolumeLabels, extraTags, identityServer, controllerServer, nodeServer)
 	if err != nil {
 		klog.Fatalf("Failed to initialize GCE CSI Driver: %v", err.Error())
 	}

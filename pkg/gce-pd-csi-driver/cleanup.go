@@ -44,15 +44,14 @@ func (gceCS *GCEControllerServer) CleanupRoutine(ctx context.Context) error {
 	clusterFilter := labelFilter(constants.ClusterIDLabel, gceCS.clusterID)
 	statusFilter := labelFilter(constants.VolumePublishStatus, constants.ProvisioningStatus)
 	filter := fmt.Sprintf("%s AND %s", clusterFilter, statusFilter)
-	klog.V(4).Infof("Listing disks with filter: %s", filter)
 	disks, _, err := gceCS.CloudProvider.ListDisksWithFilter(ctx, []googleapi.Field{}, filter)
 	if err != nil {
 		return fmt.Errorf("failed to list disks: %w", err)
 	}
+	klog.V(4).Infof("Listed %d disks with filter: %s", len(disks), filter)
 
 	for _, disk := range disks {
 		volumeID := strings.TrimPrefix(disk.SelfLink, selfLinkPrefix)
-		klog.V(4).Infof("Processing disk %s with volume ID %s", disk.Name, volumeID)
 		project, volKey, err := common.VolumeIDToKey(volumeID)
 		if err != nil {
 			return fmt.Errorf("failed to parse volume ID %s: %w", volumeID, err)
@@ -72,18 +71,17 @@ func (gceCS *GCEControllerServer) CleanupRoutine(ctx context.Context) error {
 		_, err = kc.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			if kubeApiErrors.IsNotFound(err) {
-				klog.Warningf("PVC %s/%s missing. Deleting leaked disk %s", namespace, name, disk.Name)
+				klog.Warningf("Deleting leaked disk %s", volumeID)
 				err = gceCS.CloudProvider.DeleteDisk(ctx, project, volKey)
 				if err != nil {
 					klog.Errorf("Failed to delete leaked disk %v: %v", volKey, err)
 				}
 				continue
 			}
-			klog.Errorf("Error checking PVC %s/%s: %v", namespace, name, err)
+			klog.Errorf("Failed to get pvc %s/%s: %v", namespace, name, err)
 			continue
 		}
 
-		klog.V(4).Infof("PVC %s/%s verified. Labeling disk %s with pvc-exists: true", namespace, name, disk.Name)
 		disk.Labels[constants.VolumePublishStatus] = constants.ProvisionedStatus
 		err = gceCS.CloudProvider.SetDiskLabels(ctx, project, volKey, gcecloudprovider.CloudDiskFromV1(disk), disk.Labels)
 		if err != nil {

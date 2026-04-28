@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	diskName       = "test-disk"
-	volumeID       = "projects/test-project/zones/us-central1-a/disks/test-disk"
+	diskName = "test-disk"
+	volumeID = "projects/test-project/zones/us-central1-a/disks/test-disk"
 
 	testNamespace  = "default"
 	testPVCName    = "test-pvc"
@@ -180,10 +180,11 @@ func mustMarshal(data map[string]string) string {
 
 func TestHandleDisk(t *testing.T) {
 	tests := []struct {
-		name           string
-		disk           *computev1.Disk
-		initialObjects []client.Object
-		wantDisk       *gcecloudprovider.CloudDisk
+		name               string
+		disk               *computev1.Disk
+		enableDiskDeletion bool
+		initialObjects     []client.Object
+		wantDisk           *gcecloudprovider.CloudDisk
 	}{
 		{
 			name: "pv & pvc exist -> update disk status",
@@ -213,6 +214,7 @@ func TestHandleDisk(t *testing.T) {
 					},
 				},
 			},
+			enableDiskDeletion: true,
 			wantDisk: gcecloudprovider.CloudDiskFromV1(&computev1.Disk{
 				Labels: map[string]string{
 					constants.VolumePublishStatus: constants.ProvisionedStatus,
@@ -242,6 +244,7 @@ func TestHandleDisk(t *testing.T) {
 					},
 				},
 			},
+			enableDiskDeletion: true,
 			wantDisk: gcecloudprovider.CloudDiskFromV1(&computev1.Disk{
 				Labels: map[string]string{
 					constants.VolumePublishStatus: constants.ProvisioningStatus,
@@ -263,7 +266,30 @@ func TestHandleDisk(t *testing.T) {
 					constants.VolumePublishStatus: constants.ProvisioningStatus,
 				},
 			},
-			wantDisk:    nil,
+			enableDiskDeletion: true,
+			wantDisk:           nil,
+		},
+		{
+			name: "no associated object with disk cleanup disabled -> do nothing",
+			disk: &computev1.Disk{
+				Name:     diskName,
+				SelfLink: selfLinkPrefix + volumeID,
+				Description: mustMarshal(map[string]string{
+					pvcNamespaceKey: testNamespace,
+					pvcNameKey:      testPVCName,
+					pvNameKey:       testPVName,
+					createdByKey:    testDriverName,
+				}),
+				Labels: map[string]string{
+					constants.VolumePublishStatus: constants.ProvisioningStatus,
+				},
+			},
+			enableDiskDeletion: false,
+			wantDisk: gcecloudprovider.CloudDiskFromV1(&computev1.Disk{
+				Labels: map[string]string{
+					constants.VolumePublishStatus: constants.ProvisioningStatus,
+				},
+			}),
 		},
 	}
 
@@ -292,7 +318,7 @@ func TestHandleDisk(t *testing.T) {
 				CloudProvider: fcp,
 			}
 
-			if err := handleDisk(ctx, tt.disk, kc, gceCS); err != nil {
+			if err := handleDisk(ctx, tt.disk, kc, gceCS, tt.enableDiskDeletion); err != nil {
 				t.Fatalf("handleDisk() error = %v", err)
 			}
 

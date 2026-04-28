@@ -27,7 +27,9 @@ const (
 	createdByKey    = "storage.gke.io/created-by"
 )
 
-func (gceCS *GCEControllerServer) CleanupRoutine(ctx context.Context) error {
+// VerifyClusterDisks checks validateds GCE disks associated with the cluster for potential leaked resources,
+// and deletes them if enableDiskCleanup is true.
+func (gceCS *GCEControllerServer) VerifyClusterDisks(ctx context.Context, enableDiskCleanup bool) error {
 	klog.V(4).Infof("Starting disk leak cleanup cycle")
 
 	cfg, err := config.GetConfig()
@@ -45,7 +47,7 @@ func (gceCS *GCEControllerServer) CleanupRoutine(ctx context.Context) error {
 	}
 
 	for _, disk := range disks {
-		if err := handleDisk(ctx, disk, kc, gceCS); err != nil {
+		if err := handleDisk(ctx, disk, kc, gceCS, enableDiskCleanup); err != nil {
 			klog.Errorf("failed to handle potential leaked disk %v", disk.SelfLink)
 			continue
 		}
@@ -68,7 +70,7 @@ func (gceCS *GCEControllerServer) listDisks(ctx context.Context) ([]*computev1.D
 	return disks, nil
 }
 
-func handleDisk(ctx context.Context, disk *computev1.Disk, kc client.Client, gceCS *GCEControllerServer) error {
+func handleDisk(ctx context.Context, disk *computev1.Disk, kc client.Client, gceCS *GCEControllerServer, enableDiskCleanup bool) error {
 	volumeID, tags, err := getDiskMeta(disk)
 	if err != nil {
 		return fmt.Errorf("failed to parse disk meta: %v", err)
@@ -84,6 +86,7 @@ func handleDisk(ctx context.Context, disk *computev1.Disk, kc client.Client, gce
 		return fmt.Errorf("failed to validate associated objects: %v", err)
 	}
 
+	// Apply "provisioned" status to disks with existing PV.
 	if hasPV {
 		disk.Labels[constants.VolumePublishStatus] = constants.ProvisionedStatus
 		err = gceCS.CloudProvider.SetDiskLabels(ctx, project, volKey, gcecloudprovider.CloudDiskFromV1(disk), disk.Labels)
@@ -91,16 +94,20 @@ func handleDisk(ctx context.Context, disk *computev1.Disk, kc client.Client, gce
 			return fmt.Errorf("failed to update status label for %s: %v", volKey, err)
 		}
 	}
-	// If there is a PVC without a PV, then let the CSI Provisioner attempt to provision the PV.
+
+	// Skip cleanup for disks with existing PVC, as they may be in the process of being provisioned.
 	if hasPVC {
 		return nil
 	}
 
 	// Delete disks with no associated PV/PVC
-	klog.Warningf("Deleting leaked disk %s", volumeID)
-	err = gceCS.CloudProvider.DeleteDisk(ctx, project, volKey)
-	if err != nil {
-		return fmt.Errorf("failed to delete leaked disk %v: %v", volKey, err)
+	klog.Warningf("Disk %s is leaked", volumeID)
+	if enableDiskCleanup {
+
+		err = gceCS.CloudProvider.DeleteDisk(ctx, project, volKey)
+		if err != nil {
+			return fmt.Errorf("failed to delete leaked disk %v: %v", volKey, err)
+		}
 	}
 	return nil
 }
